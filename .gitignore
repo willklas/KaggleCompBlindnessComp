@@ -1,0 +1,7 @@
+# Ignore any png images
+*.png
+# Ignore models (wights and structures)
+*.h5
+*.json
+# Ignore submissions
+submissions/*.csv

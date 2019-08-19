@@ -1,0 +1,3 @@
+# Kaggle-Comp-Blindness
+Requirements:
+- 
