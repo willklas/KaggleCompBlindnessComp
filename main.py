@@ -5,9 +5,9 @@ import pandas as pd
 import random
 import numpy as np
 import cv2
-# import tqdm
+import tqdm
 
-from keras.models import Sequential
+from keras.models import Sequential, model_from_json
 from keras.layers.convolutional import Conv2D, MaxPooling2D
 from keras.layers import Flatten, Dense, Activation, Dropout
 
@@ -20,26 +20,15 @@ from keras.callbacks import ModelCheckpoint
 # global variables
 learning_rate       = 0.00001
 epochs              = 100
-batch_size          = 7
-steps_per_epoch     = 200
+batch_size          = 3
+steps_per_epoch     = 10
 validation_steps    = 200
 input_shape         = (224, 224, 3)
 num_classes         = 5
-# validation_families = ["F001", "F005", "F021", "F023", "F044", "F048", "F063", "F070", "F071", "F086", "F094", "F097", "F099"]
 
 
 # create and save the model structure
 def create_model(model_name):
-    # model = Sequential()
-    # model.add(Conv2D(32, kernel_size=(5, 5), strides=(1, 1), activation='relu', input_shape=input_shape))
-    # model.add(MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
-    # model.add(Conv2D(64, (5, 5), activation='relu'))
-    # model.add(MaxPooling2D(pool_size=(2, 2)))
-    # model.add(Flatten())
-    # model.add(Dense(1000, activation='relu'))
-    # model.add(Dense(num_classes, activation='sigmoid'))
-
-
     model = Sequential()
     model.add(Conv2D(32, (3, 3), input_shape=(224, 224, 3)))
     model.add(Activation('relu'))
@@ -84,10 +73,6 @@ def read_image(image_path):
 
 # generator for producing batches of images realtion arrays to train on
 def my_gen(training_set, image_names_to_paths, batch_size=16):
-    # persons = list(image_names_to_paths.keys())
-    # num_persons = len(persons)
-    # print(num_persons)
-    # input()
     while True:
         training_batch = random.sample(training_set, batch_size)
         labels = []
@@ -95,27 +80,8 @@ def my_gen(training_set, image_names_to_paths, batch_size=16):
         for training_sample in training_batch:
             batch_image_paths.append(image_names_to_paths[training_sample[0]])
             labels.append(training_sample[1])
-        # print('________________')
-        # print(batch_image_paths)
-        # print('----------------')
-        # print(labels)
-        # print('________________')
-        # input()
         
-        # batch_images = np.array([read_image(image_path) for image_path in batch_image_paths])
-        batch_images = []
-        for image_path in batch_image_paths:
-            # print('__', image_path)
-            temp = read_image(image_path)
-            # print('__', temp.shape)
-            batch_images.append(temp)
-        # batch_images = np.array(batch_images)
-
-        print(np.array([batch_images]).shape)
-        print(np.array([labels]).shape)
-        input()
-
-        # training_batch_final = ([batch_images], labels)
+        batch_images = np.array([read_image(image_path) for image_path in batch_image_paths])
 
         yield ([np.array(batch_images)], [np.array(labels)])
 
@@ -123,17 +89,17 @@ def my_gen(training_set, image_names_to_paths, batch_size=16):
 
 
 # load a previosly saved model (for training or predicting)
-# def load_saved_model(model_name):
-#     model_structure_path = "models/" + model_name.split("_all_epochs")[0] + ".json"
-#     model_weights_path = "models/" + model_name + ".h5"
-#     model_structure_file = open(model_structure_path, "r")
-#     # load the model structure
-#     model = model_from_json(model_structure_file.read())
-#     # load the model weights
-#     model.load_weights(model_weights_path)
-#     model_structure_file.close()
+def load_saved_model(model_name):
+    model_structure_path = "models/" + model_name.split("_all_epochs")[0] + ".json"
+    model_weights_path = "models/" + model_name + ".h5"
+    model_structure_file = open(model_structure_path, "r")
+    # load the model structure
+    model = model_from_json(model_structure_file.read())
+    # load the model weights
+    model.load_weights(model_weights_path)
+    model_structure_file.close()
 
-#     return model
+    return model
 
 
 # train the model (after creating) and save the weights
@@ -153,43 +119,27 @@ def train(model_name, continue_training):
     
     training_set = []
     validation_set = []
+    num_validation = len(training_labels) // 5
+    validation_indicies = random.sample(range(len(training_labels)), num_validation)
+
     for i in range(len(training_labels.id_code.values)):
         image_name = training_labels.id_code.values[i]
         label      = [0]*5
         label[training_labels.diagnosis.values[i]] = 1
         if image_name in image_names_to_paths:
-            training_set.append((image_name, label))
-    # print(training_set)
-
-
-    # input()
-
-    # print(image_names_to_paths)
-
-    #     key = my_split[-3] + '/' + my_split[-2]
-    #     if    key in image_names_to_paths: image_names_to_paths[key].append(edited_image_path)
-    #     else: image_names_to_paths[key] = [edited_image_path]
-
+            if i in validation_indicies:
+                validation_set.append((image_name, label))
+            else:
+                training_set.append((image_name, label))
     
-
-    # training_set = []
-    # validation_set = []
-    # for relationship in relationships_list:
-    #     if relationship[0] in image_names_to_paths and relationship[1] in image_names_to_paths:
-    #         training_set.append(relationship)
-    #         for fam in validation_families:
-    #             if fam in relationship[0]: 
-    #                 validation_set.append(relationship)
-    #                 training_set.pop()
-    #                 break
+    print("length of training set is", len(training_set), "and lengths of validation set is", len(validation_set))
 
     if (not continue_training):
         print('creating new model...')
         model = create_model(model_name)
     else:
         print('loading saved model to continue training...')
-        # model = load_saved_model(model_name)
-        model = create_model(model_name)
+        model = load_saved_model(model_name)
     
     model.compile(loss="categorical_crossentropy", metrics=['acc'], optimizer=Adam(learning_rate))
     
@@ -218,29 +168,33 @@ def train(model_name, continue_training):
 
 
 # predict test and save results
-# def predict(model_name):
-#     print("beginning testing routine with model " + model_name + "...")
-#     relationships = pd.read_csv("input/test_relationships.csv")
+def predict(model_name):
+    print("beginning testing routine with model " + model_name + "...")
+    test_data_set = pd.read_csv("input/test/test.csv")
 
-#     print('loading model...')
-#     model = load_saved_model(model_name)
+    print('loading model...')
+    model = load_saved_model(model_name)
 
-#     predictions = []
-#     print("predicting... ")
-#     for i in tqdm.tqdm(range(len(relationships.img_pair.values))):
-#         image_pair = relationships.img_pair.values[i].split("-")
-#         image_pair = [read_image("input/test/" + image) for image in image_pair]
-#         prediction = model.predict(  [ [image_pair[0]], [image_pair[1]] ]   )
+    predictions = []
+    print("predicting... ")
+    for i in tqdm.tqdm(range(len(test_data_set.id_code.values))):
+        image = test_data_set.id_code.values[i]
+        numpy_image = read_image("input/test/" + image + ".png")
+        prediction = model.predict([[numpy_image]])
+        prediction = prediction[0]
 
-#         if prediction[0][0] > 0.5:
-#             predictions.append(1)
-#         else:
-#             predictions.append(0)
+        max = -1
+        max_id = 0
+        for j in range(len(prediction)):
+            if prediction[j] > max:
+                max = prediction[j]
+                max_id = j
+        predictions.append(max_id)
 
-#     relationships["is_related"] = predictions
-#     relationships.to_csv("submissions/" + model_name + ".csv", index=False)
+    test_data_set["diagnosis"] = predictions
+    test_data_set.to_csv("submissions/" + model_name + ".csv", index=False)
 
-#     return
+    return
 
 
 """ 
@@ -252,4 +206,4 @@ if __name__ == "__main__":
     # trains model and saves it with given name (if continuing training on a model, set 2nd argmnt to True)
     train(model_name = "model_1", continue_training=False)
     # takes the referenced model and creates submission file from testing images
-# predict(model_name = "model_1")
+    predict(model_name = "model_1")
