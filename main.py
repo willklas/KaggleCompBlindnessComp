@@ -1,5 +1,4 @@
-
-# import re
+import re
 from glob import glob
 import pandas as pd
 import random
@@ -7,27 +6,24 @@ import numpy as np
 import cv2
 import tqdm
 
-from keras.models import Sequential, model_from_json
+from keras.models import Sequential, model_from_json, Model
 from keras.layers.convolutional import Conv2D, MaxPooling2D
-from keras.layers import Flatten, Dense, Activation, Dropout
-
-# from keras.layers import Input, Concatenate, GlobalAvgPool2D, GlobalMaxPool2D, Subtract, Multiply, Dense, Flatten, Dropout
-# from keras.models import Model, model_from_json
+from keras.layers import Flatten, Dense, Activation, Dropout, Input, Concatenate, GlobalAvgPool2D, GlobalMaxPool2D, Subtract, Multiply
 from keras.optimizers import Adam
-# from keras_vggface.utils import preprocess_input
+from keras_vggface.utils import preprocess_input
 from keras.callbacks import ModelCheckpoint
 
 # global variables
 learning_rate       = 0.00001
 epochs              = 100
-batch_size          = 3
-steps_per_epoch     = 10
-validation_steps    = 200
+batch_size          = 16
+steps_per_epoch     = 200
+validation_steps    = 100
 input_shape         = (224, 224, 3)
 num_classes         = 5
 
 
-# create and save the model structure
+# create model
 def create_model(model_name):
     model = Sequential()
     model.add(Conv2D(32, (3, 3), input_shape=(224, 224, 3)))
@@ -49,30 +45,22 @@ def create_model(model_name):
 
     model.add(Dense(num_classes, activation='sigmoid'))
 
-    # save model to json file
-    model_file = open("models/" + model_name + ".json", "w")
-    model_file.write(model.to_json())
-    model_file.close()
-
-    # print a summary of the model    
-    model.summary()
-
     return model
 
 
 # load image into numpy array
 def read_image(image_path):
     image = cv2.imread(image_path)
+    # TO DO: proper resizing!!!
     image = cv2.resize(image,(224,224))
     image = np.array(image).astype(np.float)
-    # print(image.shape)
-    # input()
     # return preprocess_input(image, version=2)
     return image
 
 
-# generator for producing batches of images realtion arrays to train on
+# generator for producing batches of images to train on
 def my_gen(training_set, image_names_to_paths, batch_size=16):
+    # TO DO: gather more data by manipuating images (rotations) with same label
     while True:
         training_batch = random.sample(training_set, batch_size)
         labels = []
@@ -137,32 +125,34 @@ def train(model_name, continue_training):
     if (not continue_training):
         print('creating new model...')
         model = create_model(model_name)
+        # save model to json file
+        model_file = open("models/" + model_name + ".json", "w")
+        model_file.write(model.to_json())
+        model_file.close()
     else:
         print('loading saved model to continue training...')
         model = load_saved_model(model_name)
+    
+    # print a summary of the model    
+    model.summary()
     
     model.compile(loss="categorical_crossentropy", metrics=['acc'], optimizer=Adam(learning_rate))
     
     # set up checkpoint so we can save the model (if better accuracy) after EVERY epoch. So if it crashes, or converges early, we're all good.
     model_weights_file = "models/" + model_name + ".h5"
 
-    # checkpoint = ModelCheckpoint(model_weights_file, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
-    checkpoint = ModelCheckpoint(model_weights_file, monitor='acc', verbose=1, save_best_only=True, mode='max')
+    # accuracy is determined based on validation data, not train data, and model save file will only be updated if accuracy on val data is increased
+    checkpoint = ModelCheckpoint(model_weights_file, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
     callbacks_list = [checkpoint]
     
     print("length of training set is", len(training_set), "and length if validation set is", len(validation_set))
     print("fitting model...")
-    model.fit_generator(my_gen(training_set, image_names_to_paths, batch_size=batch_size), \
-                        callbacks=callbacks_list, epochs=epochs, verbose=1, steps_per_epoch=steps_per_epoch)
 
+    model.fit_generator(my_gen(training_set, image_names_to_paths, batch_size=batch_size), validation_data=my_gen(validation_set, image_names_to_paths, batch_size=batch_size), \
+                        callbacks=callbacks_list, epochs=epochs, verbose=1, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps)
 
-
-
-    # model.fit_generator(my_gen(training_set, image_names_to_paths, batch_size=batch_size), validation_data=my_gen(validation_set, image_names_to_paths, batch_size=batch_size), \
-    #                     callbacks=callbacks_list, epochs=epochs, verbose=1, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps)
-
-    # # this will be the final model from training on all epocs (probably overfitted), the above checkpointed saved model will be the model based on best validation set accuracy (early convergence)
-    # model.save_weights("models/" + model_name + "_all_epochs.h5")
+    # this will be the final model from training on all epocs (probably overfitted), the above checkpointed saved model will be the model based on best validation set accuracy (early convergence)
+    model.save_weights("models/" + model_name + "_all_epochs.h5")
 
     return
 
@@ -182,6 +172,7 @@ def predict(model_name):
         numpy_image = read_image("input/test/" + image + ".png")
         prediction = model.predict([[numpy_image]])
         prediction = prediction[0]
+        # print(prediction)
 
         max = -1
         max_id = 0
@@ -189,6 +180,7 @@ def predict(model_name):
             if prediction[j] > max:
                 max = prediction[j]
                 max_id = j
+                # print('here')
         predictions.append(max_id)
 
     test_data_set["diagnosis"] = predictions
