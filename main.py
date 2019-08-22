@@ -19,8 +19,8 @@ epochs              = 100
 batch_size          = 16
 steps_per_epoch     = 200
 validation_steps    = 100
-num_classes         = 5
-
+num_classes         = 4
+label_dict          = {0:[0,0,0,0], 1:[1,0,0,0], 2:[1,1,0,0], 3:[1,1,1,0], 4:[1,1,1,1]}
 
 # create model
 def create_model(model_name):
@@ -131,23 +131,32 @@ def train(model_name, continue_training):
     
     training_set = []
     validation_set = []
+
+    label_distribution = {0:0, 1:0, 2:0, 3:0, 4:0}
+    val_label_distribution = {0:0, 1:0, 2:0, 3:0, 4:0}
+    train_label_distribution = {0:0, 1:0, 2:0, 3:0, 4:0}
+
     num_validation = len(training_labels) // 5
     validation_indicies = random.sample(range(len(training_labels)), num_validation)
 
     for i in range(len(training_labels.id_code.values)):
         image_name = training_labels.id_code.values[i]
-        label      = [0]*5
-        label[training_labels.diagnosis.values[i]] = 1
         if image_name in image_names_to_paths:
+            label = label_dict[training_labels.diagnosis.values[i]]
+            # label[training_labels.diagnosis.values[i]] = 1
+            label_distribution[training_labels.diagnosis.values[i]] += 1
             if i in validation_indicies:
                 validation_set.append((image_name, label))
+                val_label_distribution[training_labels.diagnosis.values[i]] += 1
             else:
                 training_set.append((image_name, label))
+                train_label_distribution[training_labels.diagnosis.values[i]] += 1
     
     if (not continue_training):
-        print('creating new model...')
+        print('creating new model structure...')
         model = create_model(model_name)
         # save model to json file
+        print('saving new model structure...')
         model_file = open("models/" + model_name + ".json", "w")
         model_file.write(model.to_json())
         model_file.close()
@@ -167,7 +176,12 @@ def train(model_name, continue_training):
     checkpoint = ModelCheckpoint(model_weights_file, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
     callbacks_list = [checkpoint]
     
+    print("overall label distribution\n", label_distribution)
+    print("train label distribution\n", train_label_distribution)
+    print("val label distribution\n", val_label_distribution)
+
     print("length of training set is", len(training_set), "and length of validation set is", len(validation_set))
+
     print("fitting model...")
 
     model.fit_generator(my_gen(training_set, image_names_to_paths, batch_size=batch_size), validation_data=my_gen(validation_set, image_names_to_paths, batch_size=batch_size), \
@@ -195,13 +209,16 @@ def predict(model_name):
         prediction = model.predict([[numpy_image]])
         prediction = prediction[0]
 
-        max = -1
-        max_id = 0
-        for j in range(len(prediction)):
-            if prediction[j] > max:
-                max = prediction[j]
-                max_id = j
-        predictions.append(max_id)
+        min_diff = 100
+        min_diff_id = 0
+
+        for key in label_dict:
+            abs_diff = sum(map(lambda x: x*(-1) if x < 0 else x, prediction-label_dict[key]))
+            if abs_diff < min_diff:
+                min_diff = abs_diff
+                min_diff_id = key
+
+        predictions.append(min_diff_id)
 
     test_data_set["diagnosis"] = predictions
     test_data_set.to_csv("submissions/" + model_name + ".csv", index=False)
