@@ -19,7 +19,6 @@ epochs              = 100
 batch_size          = 16
 steps_per_epoch     = 200
 validation_steps    = 100
-input_shape         = (224, 224, 3)
 num_classes         = 5
 
 
@@ -48,13 +47,39 @@ def create_model(model_name):
     return model
 
 
+def resize_image(image):
+    height, width, num_channels = map(float, image.shape)
+    
+    if height > width: 
+        scaled_height = input_shape[0]
+        scaled_width = int(width*(224/height))
+    else:              
+        scaled_height = int(height*(224/width))
+        scaled_width = 224
+
+    scaled_image = cv2.resize(image, (scaled_width, scaled_height), interpolation = cv2.INTER_AREA)
+
+    final_image = np.ones((500,500,3), dtype=np.uint8)
+    final_image = np.array([[[0]*3]*224]*224, dtype=np.uint8)
+    
+    x_offset = (final_image.shape[0] - scaled_image.shape[0]) // 2
+    y_offset = (final_image.shape[1] - scaled_image.shape[1]) // 2
+    
+    final_image[x_offset:(x_offset+scaled_image.shape[0]), y_offset:(y_offset+scaled_image.shape[1]), 0:3] = scaled_image
+
+    return final_image
+
+
 # load image into numpy array
 def read_image(image_path):
-    image = cv2.imread(image_path)
-    # TO DO: proper resizing!!!
-    image = cv2.resize(image,(224,224))
-    image = np.array(image).astype(np.float)
-    # return preprocess_input(image, version=2)
+    image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+    image = resize_image(image)
+    # image = np.array(image).astype(np.float)
+
+    # cv2.imshow("scaled_image image", image) 
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows() 
+
     return image
 
 
@@ -95,7 +120,6 @@ def train(model_name, continue_training):
     print("beginning training routine with model " + model_name + "...")
     training_labels = pd.read_csv("input/train/train.csv")
     all_image_paths = glob("input/train/*.png") 
-    print(type(all_image_paths), len(all_image_paths))
 
     image_names_to_paths = {}
     for image_path in all_image_paths:
@@ -120,8 +144,6 @@ def train(model_name, continue_training):
             else:
                 training_set.append((image_name, label))
     
-    print("length of training set is", len(training_set), "and lengths of validation set is", len(validation_set))
-
     if (not continue_training):
         print('creating new model...')
         model = create_model(model_name)
@@ -145,7 +167,7 @@ def train(model_name, continue_training):
     checkpoint = ModelCheckpoint(model_weights_file, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
     callbacks_list = [checkpoint]
     
-    print("length of training set is", len(training_set), "and length if validation set is", len(validation_set))
+    print("length of training set is", len(training_set), "and length of validation set is", len(validation_set))
     print("fitting model...")
 
     model.fit_generator(my_gen(training_set, image_names_to_paths, batch_size=batch_size), validation_data=my_gen(validation_set, image_names_to_paths, batch_size=batch_size), \
@@ -172,7 +194,6 @@ def predict(model_name):
         numpy_image = read_image("input/test/" + image + ".png")
         prediction = model.predict([[numpy_image]])
         prediction = prediction[0]
-        # print(prediction)
 
         max = -1
         max_id = 0
@@ -180,7 +201,6 @@ def predict(model_name):
             if prediction[j] > max:
                 max = prediction[j]
                 max_id = j
-                # print('here')
         predictions.append(max_id)
 
     test_data_set["diagnosis"] = predictions
