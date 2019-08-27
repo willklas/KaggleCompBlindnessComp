@@ -8,10 +8,11 @@ import tqdm
 
 from keras.models import Sequential, model_from_json, Model
 from keras.layers.convolutional import Conv2D, MaxPooling2D
-from keras.layers import Flatten, Dense, Activation, Dropout, Input, Concatenate, GlobalAvgPool2D, GlobalMaxPool2D, Subtract, Multiply
+from keras.layers import Flatten, Dense, Activation, Dropout, Input, Concatenate, GlobalAvgPool2D, GlobalMaxPool2D, Subtract, Multiply, GlobalAveragePooling2D
 from keras.optimizers import Adam
 from keras_vggface.utils import preprocess_input
 from keras.callbacks import ModelCheckpoint
+from keras.applications import DenseNet121
 
 # global variables
 learning_rate       = 0.00001
@@ -22,26 +23,18 @@ validation_steps    = 100
 num_classes         = 4
 label_dict          = {0:[0,0,0,0], 1:[1,0,0,0], 2:[1,1,0,0], 3:[1,1,1,0], 4:[1,1,1,1]}
 
+densenet = DenseNet121(
+    weights='imagenet',
+    include_top=False,
+    input_shape=(224,224,3)
+)
+
 # create model
 def create_model(model_name):
     model = Sequential()
-    model.add(Conv2D(32, (3, 3), input_shape=(224, 224, 3)))
-    model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-
-    model.add(Conv2D(32, (3, 3)))
-    model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-
-    model.add(Conv2D(64, (3, 3)))
-    model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-
-    model.add(Flatten())  # this converts our 3D feature maps to 1D feature vectors
-    model.add(Dense(64))
-    model.add(Activation('relu'))
+    model.add(densenet)
+    model.add(GlobalAveragePooling2D())
     model.add(Dropout(0.5))
-
     model.add(Dense(num_classes, activation='sigmoid'))
 
     return model
@@ -167,7 +160,7 @@ def train(model_name, continue_training):
     # print a summary of the model    
     model.summary()
     
-    model.compile(loss="categorical_crossentropy", metrics=['acc'], optimizer=Adam(learning_rate))
+    model.compile(loss="binary_crossentropy", metrics=['accuracy'], optimizer=Adam(learning_rate))
     
     # set up checkpoint so we can save the model (if better accuracy) after EVERY epoch. So if it crashes, or converges early, we're all good.
     model_weights_file = "models/" + model_name + ".h5"
