@@ -11,17 +11,20 @@ from keras.layers.convolutional import Conv2D, MaxPooling2D
 from keras.layers import Flatten, Dense, Activation, Dropout, Input, Concatenate, GlobalAvgPool2D, GlobalMaxPool2D, Subtract, Multiply, GlobalAveragePooling2D
 from keras.optimizers import Adam
 from keras_vggface.utils import preprocess_input
-from keras.callbacks import ModelCheckpoint
+from keras.callbacks import Callback, ModelCheckpoint
 from keras.applications import DenseNet121
+
+from sklearn.metrics import cohen_kappa_score
 
 # global variables
 learning_rate       = 0.00001
 epochs              = 100
 batch_size          = 16
-steps_per_epoch     = 200
+steps_per_epoch     = 100
 validation_steps    = 100
 num_classes         = 4
 label_dict          = {0:[0,0,0,0], 1:[1,0,0,0], 2:[1,1,0,0], 3:[1,1,1,0], 4:[1,1,1,1]}
+label_dict_rev      = {'[0 0 0 0]':0, '[1 0 0 0]':1, '[1 1 0 0]':2, '[1 1 1 0]':3, '[1 1 1 1]':4}
 
 densenet = DenseNet121(
     weights='imagenet',
@@ -29,13 +32,78 @@ densenet = DenseNet121(
     input_shape=(224,224,3)
 )
 
+
+class Metrics(Callback):
+    def __init__(self, val_data, batch_size = 16):
+        super().__init__()
+        self.validation_data = val_data
+        self.batch_size = batch_size
+
+    def on_train_begin(self, logs={}):
+        self.val_kappas = []
+
+    def on_epoch_end(self, epoch, logs={}):
+        val_data_set, val_labels = next(self.validation_data)
+        
+        val_predictions = self.model.predict(val_data_set)
+
+        predictions = []
+
+        for prediction in val_predictions:
+            min_diff = 100
+            min_diff_id = 0
+
+            for key in label_dict:
+                abs_diff = sum(map(lambda x: x*(-1) if x < 0 else x, prediction-label_dict[key]))
+                if abs_diff < min_diff:
+                    min_diff = abs_diff
+                    min_diff_id = key
+
+            predictions.append(min_diff_id)
+
+        actual = []
+        for label in val_labels[0]:
+            actual.append(label_dict_rev[str(label)])
+
+        _val_kappa = cohen_kappa_score(
+            predictions,
+            actual, 
+            weights='quadratic'
+        )
+
+        self.val_kappas.append(_val_kappa)
+
+        print(f"val_kappa: {_val_kappa:.4f}")
+        
+        if _val_kappa == max(self.val_kappas):
+            print("Validation Kappa has improved. Saving model.")
+            self.model.save('models/model.h5')
+        else:
+            print("Validation Kappa has NOT improved...")
+
+        return
+
+
 # create model
 def create_model(model_name):
+    # .... model 1 begin
     model = Sequential()
     model.add(densenet)
     model.add(GlobalAveragePooling2D())
     model.add(Dropout(0.5))
     model.add(Dense(num_classes, activation='sigmoid'))
+    model.compile(loss="binary_crossentropy", metrics=['accuracy'], optimizer=Adam(0.00001))
+    # .... model 1 end
+
+
+    # .... model 2 begin
+    
+    # .... model 2 end
+
+
+    # .... model 3 begin
+    
+    # .... model 3 end
 
     return model
 
@@ -44,7 +112,7 @@ def resize_image(image):
     height, width, num_channels = map(float, image.shape)
     
     if height > width: 
-        scaled_height = input_shape[0]
+        scaled_height = 224
         scaled_width = int(width*(224/height))
     else:              
         scaled_height = int(height*(224/width))
@@ -75,10 +143,13 @@ def read_image(image_path):
 
     return image
 
+# read_image('C:/Users/will/code/python/kaggle_comp_blindness/input/train/0a4e1a29ffff.png')
+
 
 # generator for producing batches of images to train on
 def my_gen(training_set, image_names_to_paths, batch_size=16):
-    # TO DO: gather more data by manipuating images (rotations) with same label
+    flip_v = random.randint(0,1)
+    flip_h = random.randint(0,1)
     while True:
         training_batch = random.sample(training_set, batch_size)
         labels = []
@@ -87,7 +158,21 @@ def my_gen(training_set, image_names_to_paths, batch_size=16):
             batch_image_paths.append(image_names_to_paths[training_sample[0]])
             labels.append(training_sample[1])
         
-        batch_images = np.array([read_image(image_path) for image_path in batch_image_paths])
+        batch_images = []
+        for image_path in batch_image_paths:
+            np_image = read_image(image_path)
+            # apply transformations
+            # if flip_v: np_image = np.flip(np_image, 0)
+            # if flip_h: np_image = np.flip(np_image, 1)
+
+            # np_array_transformation_1 = np.flip(np_image, 0)
+            # np_array_transformation_2 = np.flip(np_image, 1)
+            # np_array_transformation_3 = np.flip(np_array_transformation_2, 0)
+
+            batch_images.append(np_image)
+            # batch_images.append(np_array_transformation_1)
+            # batch_images.append(np_array_transformation_2)
+            # batch_images.append(np_array_transformation_3)
 
         yield ([np.array(batch_images)], [np.array(labels)])
 
@@ -160,10 +245,14 @@ def train(model_name, continue_training):
     # print a summary of the model    
     model.summary()
     
-    model.compile(loss="binary_crossentropy", metrics=['accuracy'], optimizer=Adam(learning_rate))
+    # model.compile(loss="binary_crossentropy", metrics=['accuracy'], optimizer=Adam(learning_rate))
     
     # set up checkpoint so we can save the model (if better accuracy) after EVERY epoch. So if it crashes, or converges early, we're all good.
     model_weights_file = "models/" + model_name + ".h5"
+
+    # kappa accuracy
+    # kappa_metrics = Metrics(val_data = my_gen(validation_set, image_names_to_paths, batch_size=batch_size))
+    # callbacks_list = [kappa_metrics]
 
     # accuracy is determined based on validation data, not train data, and model save file will only be updated if accuracy on val data is increased
     checkpoint = ModelCheckpoint(model_weights_file, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
@@ -181,7 +270,7 @@ def train(model_name, continue_training):
                         callbacks=callbacks_list, epochs=epochs, verbose=1, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps)
 
     # this will be the final model from training on all epocs (probably overfitted), the above checkpointed saved model will be the model based on best validation set accuracy (early convergence)
-    model.save_weights("models/" + model_name + "_all_epochs.h5")
+    # model.save_weights("models/" + model_name + "_all_epochs.h5")
 
     return
 
@@ -226,6 +315,6 @@ def predict(model_name):
 """
 if __name__ == "__main__":
     # trains model and saves it with given name (if continuing training on a model, set 2nd argmnt to True)
-    train(model_name = "model_1", continue_training=False)
+    train(model_name = "model", continue_training=False)
     # takes the referenced model and creates submission file from testing images
-    predict(model_name = "model_1")
+    predict(model_name = "model")
